@@ -13,6 +13,7 @@ consensus_mechanism]
  *)
 open Coda_base_nonconsensus
 open Signature_lib_nonconsensus
+open Snark_params_nonconsensus
 module Currency = Currency_nonconsensus.Currency
 module Coda_numbers = Coda_numbers_nonconsensus.Coda_numbers
 module Global_slot = Coda_numbers_nonconsensus.Global_slot
@@ -50,6 +51,17 @@ let get_payload_common (payload_common_js : payload_common_js) =
   let memo = Js.to_string memo_js |> Memo.create_from_string_exn in
   User_command_payload.Common.Poly.{fee; nonce; valid_until; memo}
 
+type signature_js =
+  < field: string_js Js.readonly_prop ; scalar: string_js Js.readonly_prop >
+  Js.t
+
+let signature_to_js_object ((field, scalar) : Signature.t) =
+  object%js
+    val field = Field.to_string field |> Js.string
+
+    val scalar = Inner_curve.Scalar.to_string scalar |> Js.string
+  end
+
 let _ =
   Js.export "codaSDK"
     (object%js (_self)
@@ -70,12 +82,29 @@ let _ =
 
        (** sign arbitrary string with private key *)
        method signString (sk_base58_check_js : string_js) (str_js : string_js)
-           : Signature.t =
+           =
          let sk_base58_check = Js.to_string sk_base58_check_js in
          let sk = Private_key.of_base58_check_exn sk_base58_check in
          let str = Js.to_string str_js in
-         (* TODO : how to encode return value for JS *)
-         String_sign.Schnorr.sign sk str
+         String_sign.Schnorr.sign sk str |> signature_to_js_object
+
+       method verifyStringSignature (signature_js : signature_js)
+           (public_key_js : string_js) (str_js : string_js) =
+         let field = Js.to_string signature_js##.field |> Field.of_string in
+         let scalar =
+           Js.to_string signature_js##.scalar |> Inner_curve.Scalar.of_string
+         in
+         let signature = (field, scalar) in
+         let pk =
+           Js.to_string public_key_js
+           |> Public_key.Compressed.of_base58_check_exn
+           |> Public_key.decompress_exn
+         in
+         let inner_curve =
+           Snark_params_nonconsensus.Inner_curve.of_affine pk
+         in
+         let str = Js.to_string str_js in
+         String_sign.Schnorr.verify signature inner_curve str
 
        (** sign payment transaction payload with private key *)
        method signPayment (sk_base58_check_js : string_js)
@@ -100,8 +129,7 @@ let _ =
          let payload =
            User_command_payload.create ~fee ~nonce ~valid_until ~memo ~body
          in
-         (* TODO : how to encode return value for JS *)
-         Schnorr.sign sk payload
+         Schnorr.sign sk payload |> signature_to_js_object
 
        (** sign payment transaction payload with private key *)
        method signStakeDelegation (sk_base58_check_js : string_js)
@@ -122,6 +150,5 @@ let _ =
          let payload =
            User_command_payload.create ~fee ~nonce ~valid_until ~memo ~body
          in
-         (* TODO : how to encode return value for JS *)
-         Schnorr.sign sk payload
+         Schnorr.sign sk payload |> signature_to_js_object
     end)
