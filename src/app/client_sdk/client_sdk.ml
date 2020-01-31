@@ -54,7 +54,7 @@ let _ =
   Js.export "codaSDK"
     (object%js (_self)
        (** generate a private key, public key pair *)
-       method genKeys () =
+       method genKeys =
          let sk = Private_key.create () in
          let sk_str_js = sk |> Private_key.to_base58_check |> Js.string in
          let pk_str_js =
@@ -63,9 +63,9 @@ let _ =
              |> Js.string)
          in
          object%js
-           val private_key = sk_str_js
+           val privateKey = sk_str_js
 
-           val public_key = pk_str_js
+           val publicKey = pk_str_js
          end
 
        (** sign arbitrary string with private key *)
