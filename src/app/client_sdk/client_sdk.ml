@@ -1,6 +1,6 @@
 (* sign_js.ml *)
 
-[%%import
+(*[%%import
 "/src/config.mlh"]
 
 [%%ifdef
@@ -10,7 +10,7 @@ consensus_mechanism]
 "Client_sdk cannot be built if \"consensus_mechanism\" is defined"]
 
 [%%endif]
-
+ *)
 open Coda_base_nonconsensus
 open Signature_lib_nonconsensus
 module Currency = Currency_nonconsensus.Currency
@@ -39,9 +39,35 @@ type payment_js =
 type stake_delegation_js =
   < common: payload_common_js Js.prop ; new_delegate: string_js Js.prop > Js.t
 
+let get_payload_common (payload_common_js : payload_common_js) =
+  let fee_js = payload_common_js##.fee in
+  let fee = Js.to_string fee_js |> Currency.Fee.of_string in
+  let nonce_js = payload_common_js##.nonce in
+  let nonce = Js.to_string nonce_js |> Coda_numbers.Account_nonce.of_string in
+  let valid_until_js = payload_common_js##.valid_until in
+  let valid_until = Js.to_string valid_until_js |> Global_slot.of_string in
+  let memo_js = payload_common_js##.memo in
+  let memo = Js.to_string memo_js |> Memo.create_from_string_exn in
+  User_command_payload.Common.Poly.{fee; nonce; valid_until; memo}
+
 let _ =
   Js.export "codaSDK"
-    (object%js (self)
+    (object%js (_self)
+       (** generate a private key, public key pair *)
+       method genKeys () =
+         let sk = Private_key.create () in
+         let sk_str_js = sk |> Private_key.to_base58_check |> Js.string in
+         let pk_str_js =
+           Public_key.(
+             of_private_key_exn sk |> compress |> Compressed.to_base58_check
+             |> Js.string)
+         in
+         object%js
+           val private_key = sk_str_js
+
+           val public_key = pk_str_js
+         end
+
        (** sign arbitrary string with private key *)
        method signString (sk_base58_check_js : string_js) (str_js : string_js)
            : Signature.t =
@@ -51,28 +77,13 @@ let _ =
          (* TODO : how to encode return value for JS *)
          String_sign.Schnorr.sign sk str
 
-       method get_payload_common (payload_common_js : payload_common_js) =
-         let fee_js = payload_common_js##.fee in
-         let fee = Js.to_string fee_js |> Currency.Fee.of_string in
-         let nonce_js = payload_common_js##.nonce in
-         let nonce =
-           Js.to_string nonce_js |> Coda_numbers.Account_nonce.of_string
-         in
-         let valid_until_js = payload_common_js##.valid_until in
-         let valid_until =
-           Js.to_string valid_until_js |> Global_slot.of_string
-         in
-         let memo_js = payload_common_js##.memo in
-         let memo = Js.to_string memo_js |> Memo.create_from_string_exn in
-         User_command_payload.Common.Poly.{fee; nonce; valid_until; memo}
-
        (** sign payment transaction payload with private key *)
        method signPayment (sk_base58_check_js : string_js)
            (payment_js : payment_js) =
          let sk_base58_check = Js.to_string sk_base58_check_js in
          let sk = Private_key.of_base58_check_exn sk_base58_check in
          let User_command_payload.Common.Poly.{fee; nonce; valid_until; memo} =
-           self##get_payload_common payment_js##.common
+           get_payload_common payment_js##.common
          in
          let payment_payload = payment_js##.payment_payload in
          let receiver =
@@ -98,7 +109,7 @@ let _ =
          let sk_base58_check = Js.to_string sk_base58_check_js in
          let sk = Private_key.of_base58_check_exn sk_base58_check in
          let User_command_payload.Common.Poly.{fee; nonce; valid_until; memo} =
-           self##get_payload_common stake_delegation_js##.common
+           get_payload_common stake_delegation_js##.common
          in
          let new_delegate =
            Js.to_string stake_delegation_js##.new_delegate
